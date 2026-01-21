@@ -4,7 +4,85 @@
 # @email: zqiaoac@connect.ust.hk
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-import jaxlie
+
+def skew_symmetric(v):
+    """Convert a 3-vector to a skew-symmetric matrix such that 
+        dot(skew_symmetric(v), w) = cross(v, w)"""
+    return np.array([
+        [0, -v[2], v[1]],
+        [v[2], 0, -v[0]],
+        [-v[1], v[0], 0]
+    ])
+
+def unskew_symmetric(mat):
+    """Convert a skew-symmetric matrix to a 3-vector"""
+    return np.array([mat[2, 1], mat[0, 2], mat[1, 0]])
+
+def se3_log(transform):
+    """Compute the logarithm of an SE(3) transformation matrix."""
+    R = transform[:3, :3]
+    t = transform[:3, 3]
+    
+    # Get rotation angle (theta) from trace of R
+    cos_theta = (np.trace(R) - 1) / 2
+    # Clamp to avoid numerical issues
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    theta = np.arccos(cos_theta)
+    
+    # Handle special cases
+    if np.isclose(theta, 0):
+        # Small angle approximation
+        omega = np.zeros(3)
+        v = t
+    elif np.isclose(theta, np.pi, atol=1e-6):
+        # Angle near pi
+        # Find rotation axis
+        omega_mat = np.log(R)  # This is actually skew symmetric
+        omega = unskew_symmetric(omega_mat)
+        # Compute v vector
+        # In this case, we use the general formula
+        W = np.eye(3) - theta / 2 * skew_symmetric(omega) + (1 - theta / np.tan(theta / 2)) / theta**2 * (skew_symmetric(omega) @ skew_symmetric(omega))
+        v = np.linalg.solve(W, t)
+    else:
+        # General case
+        omega_mat = theta / (2 * np.sin(theta)) * (R - R.T)
+        omega = unskew_symmetric(omega_mat)
+        
+        # Compute W matrix for translation
+        W = np.eye(3) - theta / 2 * skew_symmetric(omega) + (1 - theta / np.tan(theta / 2)) / theta**2 * (skew_symmetric(omega) @ skew_symmetric(omega))
+        v = np.linalg.solve(W, t)
+    
+    return np.concatenate([omega, v])
+
+def se3_exp(se3_vec):
+    """Compute the exponential of an se(3) vector."""
+    omega = se3_vec[:3]
+    v = se3_vec[3:]
+    
+    theta = np.linalg.norm(omega)
+    omega_mat = skew_symmetric(omega)
+    
+    if np.isclose(theta, 0):
+        # Small angle approximation
+        R = np.eye(3) + omega_mat
+        t = v
+    else:
+        # General case
+        omega_unit = omega / theta
+        omega_unit_mat = skew_symmetric(omega_unit)
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+        
+        R = np.eye(3) + sin_theta * omega_unit_mat + (1 - cos_theta) * (omega_unit_mat @ omega_unit_mat)
+        
+        # Compute translation
+        W = np.eye(3) + ((1 - cos_theta) / theta) * omega_unit_mat + (theta - sin_theta) / (theta**2) * (omega_unit_mat @ omega_unit_mat)
+        t = W @ v
+    
+    transform = np.eye(4)
+    transform[:3, :3] = R
+    transform[:3, 3] = t
+    return transform
 
 def make_noisy_pose2d(pose, yaw_std, trans_std):
     # pose: 4x4
@@ -22,19 +100,6 @@ def get_pose2d_noise(yaw_std, trans_std):
     pose_noisy[:3, :3] = R.from_euler('zyx', ypr, degrees=True).as_matrix()
     pose_noisy[:2, 3] += np.random.normal(0, trans_std, 2)
     return pose_noisy
-
-def se3_log(transform):
-    # transform: (4, 4)
-    # points: (N, 3)
-    SE3 = jaxlie.SE3.from_matrix(transform)
-    se3 = SE3.log()
-    return np.asarray(se3)
-
-def se3_exp(se3):
-    # se3: (6, )
-    SE3 = jaxlie.SE3.exp(se3)
-    transform = SE3.as_matrix()
-    return transform
 
 def inv_se3(transform):
     return np.linalg.inv(transform)

@@ -3,8 +3,7 @@ from scipy.spatial.transform import Rotation as R
 # /home/qzj/code/catkin_iros23/devel/lib/python3/dist-packages
 import os
 import sys
-sys.path.append("/home/qzj/code/catkin_iros23/devel/lib/python3/dist-packages")
-from openlane_bag.msg import LaneList, Lane, LanePoint
+# from ros_utils.msg import LaneList, Lane, LanePoint
 from geometry_msgs.msg import PoseStamped
 
 def posemsg_to_np(pose_msg):
@@ -13,7 +12,7 @@ def posemsg_to_np(pose_msg):
     pose[:3, :3] = R.from_quat([pose_msg.pose.orientation.x, pose_msg.pose.orientation.y, pose_msg.pose.orientation.z, pose_msg.pose.orientation.w]).as_matrix()
     return pose
 
-def lanemsg_to_list(lane_list_msg:LaneList):
+def lanemsg_to_list(lane_list_msg):
     lane_list = []
     for lane_id in range(lane_list_msg.num_lanes):
         lane = lane_list_msg.lane_list[lane_id]
